@@ -34,3 +34,12 @@ Key Codes (gestures):
     ```
     $: adb push sleep.lua /storage/emulated/0/Android/media/is.xyz.mpv/scripts/
     ```
+
+
+## ignore
+<!--
+We need to retrieve user input. MPV OSD can output content, but not retrieve input.
+We could use [termux-dialog](https://wiki.termux.com/wiki/Termux-dialog), but that's bloated.
+
+Alternatively, we can write a small app that sleep.lua executes to retrieve user input through a simple dialogue
+-->
