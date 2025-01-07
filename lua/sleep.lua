@@ -1,13 +1,13 @@
 local mp = require 'mp'
---local socket = require("socket") -- not portable
 
 local config_file = "/storage/emulated/0/Android/media/is.xyz.mpv/scripts/sleep.json"
 
 local time = {
-	minutes = 25,
+	minutes = 0.1,
 	active = false,
 	format = "%02d:%02d:%02d", -- (HH:MM:SS)
 	remaining = nil,
+	display_time = true,
 
 	prev_state = {
 		timestamp = "",
@@ -85,6 +85,8 @@ local function read_config()
 	mp.msg.info("[sleep.lua]: closing", config_file .. ".")
 	io.close(openf)
 
+	-- TODO: put in table, then index with @param and return it
+	-- TODO: add display_time boolean
 	local default_time = read_jsonkey_value(file_str, "\"config\"", "\"default_time\"%s*:%s*(%d+)")
 	local prevstate_tstamp = read_jsonkey_value(file_str, "\"previous_state\"", "\"timestamp\"%s*:%s*\"(.-)\"")
 	local prevstate_lastup = read_jsonkey_value(file_str, "\"previous_state\"", "\"last_updated\"%s*:%s*\"(.-)\"")
@@ -96,27 +98,63 @@ local function read_config()
 	mp.msg.info("prevstate_active: " .. prevstate_active)
 end
 
+---------------------------
+--     Sleep / Timer     --
+---------------------------
+
 local function reinstate_tstamp(time)
 	-- according to a gesture, this should be called, and seek to @param in file
 	-- we also need to verify that we're in the correct file.
 end
 
 local function export_time()
-	-- we should retrieve the current time stamp and export it to sleep.json
-	-- at this point, mpv should be paused or terminated.
-end
+	mp.msg.info("[sleep.lua]: exporting date and timestamp")
+	time.prev_state.timestamp = mp.get_property_number("time-pos")
+	time.prev_state.was_active = false
+	time.prev_state.last_update = os.date("!%Y-%m-%dT%H:%M:%SZ")  -- ISO 8601 UTC
 
-local function stop_timer()
-end
-
-local function remove_timer()
+	-- TODO: EXPORT TO sleep.json
 end
 
 local function set_timer()
+	time.active = true
+	time.remaining = time.minutes * 60
+
+	local update_timer
+	update_timer = mp.add_periodic_timer(1, function()
+		if not time.active then
+			update_timer:kill()
+			return
+		end
+		time.remaining = time.remaining - 1
+
+		if time.display_time then
+			local hrs = math.floor(time.remaining / 3600)
+			local min = math.floor((time.remaining % 3600) / 60)
+			local sec = time.remaining % 60
+			local rem = string.format(time.format, hrs, min, sec)
+
+			mp.osd_message("Sleep Timer: " .. rem, 3)
+			mp.msg.info("[sleep.lua]: time remaining: " .. rem)
+		end
+
+		if time.remaining <= 0 then
+			mp.msg.info("[sleep.lua]: time expired. Killing timer")
+			update_timer:kill()
+			time.active = false
+			time.remaining = nil
+
+			export_time()
+			mp.osd_message("Sleep timer expired - pausing playback", 3)
+			mp.msg.info("[sleep.lua]: pausing playback.")
+			mp.set_property("pause", "yes")
+		end
+	end)
 end
 
-local function display_time()
-end
+---------------------------
+--    Action / Gestures  --
+---------------------------
 
 local function cancel_pending_action()
     if gesture_state.actions.timer then
@@ -169,11 +207,16 @@ local function handle_gesture()
 
 	if gesture_state.triggers.count == ActionType.SET_TIMER then
 		local confirmed = confirm_action(ActionType.SET_TIMER)
-		if confirmed then
+		if confirmed and not time.active then
 			gesture_state.actions.callback = function()
-				--set_timer()
+				mp.msg.info("[sleep.lua]: sleep action confirmed. Setting timer for " .. time.minutes .. " minutes")
+				set_timer()
 				mp.osd_message("Timer has been set!")
 			end
+		else
+			-- TODO:
+			mp.osd_message("Timer already exists. [duration remaining]\nGesture again to reset the timer")
+			mp.msg.info("[sleep.lua]: timer already exists.")
 		end
 	elseif gesture_state.triggers.count == ActionType.REMOVE_TIMER then
 		local confirmed = confirm_action(ActionType.REMOVE_TIMER)
