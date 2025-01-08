@@ -1,9 +1,17 @@
+-- TODO:
+	-- refactor: remove redundant file i/o
+
 local mp = require 'mp'
 
 local config_file = "/storage/emulated/0/Android/media/is.xyz.mpv/scripts/sleep.json"
 
+local config = {
+	file = "/storage/emulated/0/Android/media/is.xyz.mpv/scripts/sleep.json",
+	logging = true,
+}
+
 local time = {
-	minutes = 0.1,
+	minutes = 0,
 	active = false,
 	format = "%02d:%02d:%02d", -- (HH:MM:SS)
 	remaining = nil,
@@ -14,7 +22,7 @@ local time = {
 		remaining = nil,
 		was_active = false,
 		last_update = "", -- ISO 8601
-		-- file_name = ""
+		file_name = nil,
 	},
 }
 
@@ -23,9 +31,10 @@ local gesture_state = {
 		count = 0,
 		last_action_time = 0,
 	},
+
 	actions = {
 		pending = false,
-		confirm_timeout = 5, -- seconds
+		confirm_timeout = 1, -- seconds
 		timer = nil,
 		callback = nil,
 	}
@@ -39,20 +48,22 @@ local ActionType = {
 }
 
 
---[[ todo:
-perhaps instead of using a json file, we simply write the state attributes at the top of sleep.lua.
-then have test.lua edit itself as need be.
-]]
+local function log(msg_str)
+	if config.logging then
+		mp.msg.info("[sleep.lua]: " .. msg_str)
+	end
+end
 
 ---------------------------
 --      JSON PARSER      --
 ---------------------------
+
 local function read_jsonkey_value(file_str, json_obj, obj_key)
 	local b_obj = string.find(file_str, json_obj)
 	local e_obj = string.find(file_str, "}", b_obj)
 
-	if not (b_obj or e_obj) then
-		mp.msg.error("[sleep.lua]" .. json_obj .. "does not exist or " .. config_file "is formatted incorrectly")
+	if not (b_obj and e_obj) then
+		log(json_obj .. "does not exist or " .. config_file "is formatted incorrectly")
 		return nil
 	end
 
@@ -60,7 +71,7 @@ local function read_jsonkey_value(file_str, json_obj, obj_key)
 	local key_val = string.match(substr, obj_key)
 
 	if not key_val then
-		mp.msg.error("[sleep.lua]: could not extract \"" .. string.match(obj_key, "\"([^\"]+)\"") .. "\"" .. " from " .. config_file)
+		log("could not extract \"" .. string.match(obj_key, "\"([^\"]+)\"") .. "\"" .. " from " .. config_file)
 		return nil
 	end
 
@@ -68,52 +79,118 @@ local function read_jsonkey_value(file_str, json_obj, obj_key)
 end
 
 local function read_config()
-	mp.msg.info("[sleep.lua]: opening", config_file .. "...")
+	log("opening" .. config_file .. "...")
 
-	local openf = io.input(config_file)
+	local openf, err = io.open(config_file, "r")
 	if openf == nil then
-		mp.msg.error("[sleep.lua]: failed to open", config_file .. "!")
-		-- TODO: we should make sure it exists, otherwise should create it
+		log("failed to open" .. config_file .. "! " .. err)
+		return
 	end
-
 
 	local file_str = openf:read("*all")
 	if file_str == nil or file_str == "" then
-		mp.msg.error("[sleep.lua]: Failed to read config_file into string or config_file is empty", config_file .. "!")
+		log("Failed to read config_file into string or config_file is empty" .. config_file .. "!")
+		openf:close()
+		return
 	end
 
-	mp.msg.info("[sleep.lua]: closing", config_file .. ".")
+	log("config:\n" .. file_str)
+	log("closing" .. config_file .. ".")
 	io.close(openf)
 
-	-- TODO: put in table, then index with @param and return it
-	-- TODO: add display_time boolean
-	local default_time = read_jsonkey_value(file_str, "\"config\"", "\"default_time\"%s*:%s*(%d+)")
-	local prevstate_tstamp = read_jsonkey_value(file_str, "\"previous_state\"", "\"timestamp\"%s*:%s*\"(.-)\"")
+	local default_time = read_jsonkey_value(file_str, "\"config\"", "\"default_time\"%s*:%s*([%d%.]+)")
+	local display_time = read_jsonkey_value(file_str, "\"config\"", "\"display_time\"%s*:%s*(%a+)")
+	local prevstate_tstamp = read_jsonkey_value(file_str, "\"previous_state\"", "\"time_stamp\"%s*:%s*\"(.-)\"")
 	local prevstate_lastup = read_jsonkey_value(file_str, "\"previous_state\"", "\"last_updated\"%s*:%s*\"(.-)\"")
-	local prevstate_active = read_jsonkey_value(file_str, "\"previous_state\"", "\"was_active\"%s*:%s*([a-zA-Z]+)")
+	local prevstate_active = read_jsonkey_value(file_str, "\"previous_state\"", "\"was_active\"%s*:%s*(%a+)")
 
-	mp.msg.info("default_time: " .. default_time or "[sleep.lua]: could not extract default_time from")
-	mp.msg.info("prevstate_tstamp: " .. prevstate_tstamp)
-	mp.msg.info("prevstate_lastup: " .. prevstate_lastup)
-	mp.msg.info("prevstate_active: " .. prevstate_active)
+	log("default_time " .. default_time)
+	time.minutes = default_time
+	time.display_time = display_time
+	time.prev_state.timestamp = prevstate_tstamp
+	time.prev_state.last_update = prevstate_lastup
+	time.prev_state.was_active = prevstate_active
+
+	log("time.minutes " .. time.minutes)
+	log("time.display_time " .. (time.display_time or "nil"))
+	log("time.prev_state.timestamp " .. (time.prev_state.timestamp or "nil"))
+	log("time.prev_state.last_update " .. (time.prev_state.last_update or "nil"))
+	log("time.prev_state.was_active " .. (time.prev_state.was_active or "nil"))
 end
 
 ---------------------------
 --     Sleep / Timer     --
 ---------------------------
 
-local function reinstate_tstamp(time)
+
+-- TODO:
+local function reinstate_tstamp(t)
 	-- according to a gesture, this should be called, and seek to @param in file
 	-- we also need to verify that we're in the correct file.
 end
 
 local function export_time()
-	mp.msg.info("[sleep.lua]: exporting date and timestamp")
-	time.prev_state.timestamp = mp.get_property_number("time-pos")
-	time.prev_state.was_active = false
-	time.prev_state.last_update = os.date("!%Y-%m-%dT%H:%M:%SZ")  -- ISO 8601 UTC
+	log("exporting date and timestamp")
+	log("opening " .. config_file .. "...")
 
-	-- TODO: EXPORT TO sleep.json
+	local openf, err = io.open(config_file, "r")
+	if openf == nil then
+		log("failed to open " .. config_file .. "!" .. err)
+		return
+	end
+
+	local fstr = {}
+	for line in openf:lines() do
+		table.insert(fstr, line)
+	end
+	log("closing " .. config_file .. "...")
+	io.close(openf)
+
+	local in_prevblock = false
+	for i, line in ipairs(fstr) do
+		if line:find('"previous_state"') then
+			log("in previous_state block")
+			log("" .. tostring(line))
+			in_prevblock = true
+
+		elseif in_prevblock then
+			if line:find('"time_stamp"') then
+				log("found time_stamp:")
+				log(tostring(line))
+				fstr[i] = '		"time_stamp": ' .. tostring(mp.get_property_number("time-pos")) .. '",'
+			elseif line:find('"last_updated"') then
+				log("found last_updated:")
+				log(tostring(line))
+				fstr[i] = '		"last_updated": ' .. os.date("!%Y-%m-%dT%H:%M:%SZ") .. '",'
+			elseif line:find('"was_active"') then
+				log("found was_active:")
+				log(tostring(line))
+				fstr[i] = '		"was_active": ' .. tostring(time.prev_state.was_active)
+			end
+
+		elseif line:find('}') then
+			in_prevblock = false
+			log("left previous_state block:")
+		end
+	end
+
+	log("updated config file string:\n")
+	for i, line in ipairs(fstr) do
+		log("line " .. i .. ": " .. tostring(line))
+	end
+
+	openf, err = io.open(config_file, "w")
+	if openf == nil then
+		log("failed to open" .. config_file .. "!" .. err)
+		return
+	end
+
+	log("writing to file")
+	for _, line in ipairs(fstr) do
+		openf:write(line .. "\n")
+	end
+	log("closing" .. config_file .. "...")
+	io.close(openf)
 end
 
 local function set_timer()
@@ -135,21 +212,26 @@ local function set_timer()
 			local rem = string.format(time.format, hrs, min, sec)
 
 			mp.osd_message("Sleep Timer: " .. rem, 3)
-			mp.msg.info("[sleep.lua]: time remaining: " .. rem)
+			log("time remaining: " .. rem)
 		end
 
 		if time.remaining <= 0 then
-			mp.msg.info("[sleep.lua]: time expired. Killing timer")
+			log("time expired. Killing timer")
 			update_timer:kill()
 			time.active = false
 			time.remaining = nil
 
 			export_time()
 			mp.osd_message("Sleep timer expired - pausing playback", 3)
-			mp.msg.info("[sleep.lua]: pausing playback.")
+			log("pausing playback.")
 			mp.set_property("pause", "yes")
 		end
 	end)
+end
+
+local function remove_timer()
+	time.active = false
+	time.remaining = 0
 end
 
 ---------------------------
@@ -171,15 +253,28 @@ local function confirm_action(action_t)
 	gesture_state.actions.pending = true
 
 	local messages = {
-		[ActionType.SET_TIMER] = "Timer will be set for " .. time.minutes .. " minutes in " .. gesture_state.actions.confirm_timeout .. " seconds.\nGesture again to cancel",
-		[ActionType.REMOVE_TIMER] = "Timer will be removed in " .. gesture_state.actions.confirm_timeout .. " seconds.\nGesture again to cancel",
-		[ActionType.REINSTATE] = "Timer will be reinstated in " .. gesture_state.actions.confirm_timeout .. " seconds.\nGesture again to cancel",
-		[ActionType.RESET] = "Timer will be reset in " .. gesture_state.actions.confirm_timeout .. " seconds.\nGesture again to cancel"
+		[ActionType.SET_TIMER] = "Timer will be set for " ..
+			time.minutes .. " minutes in " ..
+			gesture_state.actions.confirm_timeout ..
+			" seconds.\nGesture again to cancel",
+
+		[ActionType.REMOVE_TIMER] = "Timer will be removed in " ..
+			gesture_state.actions.confirm_timeout ..
+			" seconds.\nGesture again to cancel",
+
+		[ActionType.REINSTATE] = "Timer will be reinstated in " ..
+			gesture_state.actions.confirm_timeout ..
+			" seconds.\nGesture again to cancel",
+
+		[ActionType.RESET] = "Timer will be reset in " ..
+			gesture_state.actions.confirm_timeout ..
+			" seconds.\nGesture again to cancel"
 	}
 
 	mp.osd_message(messages[action_t], gesture_state.actions.confirm_timeout)
 
-	gesture_state.actions.timer = mp.add_timeout(gesture_state.actions.confirm_timeout, function()
+	gesture_state.actions.timer = mp.add_timeout(gesture_state.actions.confirm_timeout,
+	function()
 		if gesture_state.actions.callback then
 			gesture_state.actions.callback()
 		end
@@ -209,20 +304,20 @@ local function handle_gesture()
 		local confirmed = confirm_action(ActionType.SET_TIMER)
 		if confirmed and not time.active then
 			gesture_state.actions.callback = function()
-				mp.msg.info("[sleep.lua]: sleep action confirmed. Setting timer for " .. time.minutes .. " minutes")
+				log("sleep action confirmed. Setting timer for " .. time.minutes .. " minutes")
 				set_timer()
 				mp.osd_message("Timer has been set!")
 			end
 		else
 			-- TODO:
 			mp.osd_message("Timer already exists. [duration remaining]\nGesture again to reset the timer")
-			mp.msg.info("[sleep.lua]: timer already exists.")
+			log("timer already exists.")
 		end
 	elseif gesture_state.triggers.count == ActionType.REMOVE_TIMER then
 		local confirmed = confirm_action(ActionType.REMOVE_TIMER)
 		if confirmed then
 			gesture_state.actions.callback = function()
-				--remove_timer()
+				remove_timer()
 				mp.osd_message("Timer has been removed.")
 			end
 		end
@@ -230,6 +325,7 @@ local function handle_gesture()
 		local confirmed = confirm_action(ActionType.REINSTATE)
 		if confirmed then
 			gesture_state.actions.callback = function()
+				-- TODO:
 				-- reinstate_timer(t)
 				mp.osd_message("Reinstating [time stamp] from [FILE].")
 			end
@@ -241,10 +337,9 @@ end
 
 -- called immediately upon opening a media config_file
 local function main()
-	mp.msg.info("[sleep.lua]: script has been loaded")
-	mp.osd_message("script has been loaded")
-
-	--read_config()
+	log("script has been loaded")
+	read_config()
+	log("script has initialized defaults")
 end
 
 mp.add_key_binding(nil, "sleep", handle_gesture) -- the user invokes this by gesturing (user-set in input.conf)

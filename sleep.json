@@ -1,12 +1,12 @@
 {
 	"config": {
-		"default_time": 2,
+		"default_time": 0.1,
 		"default_time_format": "%02d:%02d:%02d",
 		"_comment_default_time_format": "DO NOT CHANGE THIS! ^",
 		"display_time": true,
 	},
 	"previous_state": {
-		"timestamp": "00:00:00",
+		"time_stamp": "00:00:00",
 		"last_updated": "2025-01-02T23:07:25Z",
 		"was_active": false,
 	}
