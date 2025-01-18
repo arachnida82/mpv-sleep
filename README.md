@@ -1,28 +1,20 @@
 # MPV-Android Sleep
-A gesture-controlled sleep timer for mpv-android that saves and restores playback positions.
+A gesture-controlled sleep timer for mpv-android
 
 <!--insert video demonstration or screenshots-->
 
 ## Features
  Set a sleep timer with simple touch gestures
-- Save playback position when timer expires
-- Restore previous playback position for each media file
-- On-screen display (OSD) for timer status
+- On-screen display (OSD) for timer countdown
 
 ## Usage
 The available gestures in mpv-android are limited, so for now this script uses cycling logic.
 - First gesture: begin the sleep timer
 - Gesture again to cancel the sleep timer
-- Gesture again to reinstate the timer (from last **completed** timer)
-- Gesture again to cancel the reinstatment
 
 ## Requirements
-- MPV-Android ([api29 or later](https://github.com/mpv-android/mpv-android/releases))
+- mpv-Android ([api29 or later](https://github.com/mpv-android/mpv-android/releases))
 
-- Read storage permissions: (to enable the script to read file names for saving playback positions.)
-    ```
-    $: adb shell pm grant is.xyz.mpv android.permission.READ_EXTERNAL_STORAGE
-    ```
 
 ## Installation
 1. Download Files
@@ -74,9 +66,4 @@ edit `sleep.json` to customize:
 For example, `"display_time": false,` removes the OSD countdown, but the timer continues in the background.
 
 ## Contributing
-This script works well enough for my needs as is. However, pull requests are more than welcomed!
-
-For major changes, please open an issue first to discuss what you would like to change.
-
-## License
-This script is licensed under the [TBD] license - see the [LICENSE](LICENSE) file for details.
+This script works well enough for my needs as is. Pull requests are more than welcomed, however.
